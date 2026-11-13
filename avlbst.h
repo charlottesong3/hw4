@@ -135,9 +135,10 @@ protected:
     using BinarySearchTree<Key, Value>::nodeSwap;
     virtual void nodeSwap( AVLNode<Key,Value>* n1, AVLNode<Key,Value>* n2);
 
-    // Balance is height(right subtree) - height(left subtree).
-    AVLNode<Key, Value>* rotateLeft(AVLNode<Key, Value>* node);
-    AVLNode<Key, Value>* rotateRight(AVLNode<Key, Value>* node);
+    // right height minus left height
+    // these two helpers do the tree spins :3
+    AVLNode<Key, Value>* derpLeft(AVLNode<Key, Value>* node);
+    AVLNode<Key, Value>* derpRight(AVLNode<Key, Value>* node);
 };
 
 /*
@@ -150,50 +151,66 @@ void AVLTree<Key, Value>::insert (const std::pair<const Key, Value> &new_item)
     AVLNode<Key, Value>* parent = NULL;
     AVLNode<Key, Value>* current = static_cast<AVLNode<Key, Value>*>(this->root_);
 
-    // Find where the new node belongs.
-    while(current != NULL) {
+    // first find a spot for the new node
+    while (current != NULL) {
         parent = current;
-        if(new_item.first < current->getKey()) {
+
+        if (new_item.first < current->getKey()) {
             current = current->getLeft();
         }
-        else if(current->getKey() < new_item.first) {
+        else if (current->getKey() < new_item.first) {
             current = current->getRight();
         }
         else {
+            // same key, so just change its value
             current->setValue(new_item.second);
             return;
         }
     }
 
+    // make the new node and hook it to its parent
     AVLNode<Key, Value>* node = new AVLNode<Key, Value>(
         new_item.first, new_item.second, parent);
-    if(parent == NULL) {
+    if (parent == NULL) {
+
         this->root_ = node;
         return;
     }
-    if(new_item.first < parent->getKey()) parent->setLeft(node);
-    else parent->setRight(node);
+    if (new_item.first < parent->getKey()) {
+        parent->setLeft(node);
+    }
+    else {
+        parent->setRight(node);
+    }
 
-    // Walk upward, updating balances until the height stops changing.
-    while(parent != NULL) {
-        if(node == parent->getLeft()) parent->updateBalance(-1);
-        else parent->updateBalance(1);
+    // now go back up and fix any leaning nodes
+    while (parent != NULL) {
 
-        if(parent->getBalance() == 0) return;
-        if(parent->getBalance() == -2) {
-            if(parent->getLeft()->getBalance() == 1) {
-                rotateLeft(parent->getLeft());
-            }
-            rotateRight(parent);
+        if (node == parent->getLeft()) {
+            parent->updateBalance(-1);
+        }
+        else {
+            parent->updateBalance(1);
+        }
+
+        if (parent->getBalance() == 0) {
             return;
         }
-        if(parent->getBalance() == 2) {
-            if(parent->getRight()->getBalance() == -1) {
-                rotateRight(parent->getRight());
+        if (parent->getBalance() == -2) {
+            if (parent->getLeft()->getBalance() == 1) {
+                derpLeft(parent->getLeft());
             }
-            rotateLeft(parent);
+            derpRight(parent);
             return;
         }
+        if (parent->getBalance() == 2) {
+            if (parent->getRight()->getBalance() == -1) {
+                derpRight(parent->getRight());
+            }
+            derpLeft(parent);
+            return;
+        }
+
         node = parent;
         parent = parent->getParent();
     }
@@ -208,114 +225,166 @@ void AVLTree<Key, Value>::remove(const Key& key)
 {
     AVLNode<Key, Value>* target =
         static_cast<AVLNode<Key, Value>*>(this->internalFind(key));
-    if(target == NULL) return;
+    // nothing to remove if the key is missing
+    if (target == NULL) {
+        return;
+    }
 
-    if(target->getLeft() != NULL && target->getRight() != NULL) {
+    // two kids: swap with the biggest node on the left first
+    if (target->getLeft() != NULL && target->getRight() != NULL) {
         AVLNode<Key, Value>* pred = static_cast<AVLNode<Key, Value>*>(
             this->predecessor(target));
         nodeSwap(target, pred);
     }
 
+    // now there is at most one kid to move up
     AVLNode<Key, Value>* parent = target->getParent();
     AVLNode<Key, Value>* child = target->getLeft();
-    if(child == NULL) child = target->getRight();
+    if (child == NULL) {
+        child = target->getRight();
+    }
     int8_t diff = 0;
 
-    if(parent == NULL) {
+    if (parent == NULL) {
         this->root_ = child;
     }
-    else if(parent->getLeft() == target) {
+    else if (parent->getLeft() == target) {
         parent->setLeft(child);
-        diff = 1;  // The left subtree became shorter.
+        diff = 1;  // left side got shorter
     }
     else {
         parent->setRight(child);
-        diff = -1; // The right subtree became shorter.
+        diff = -1; // right side got shorter
     }
-    if(child != NULL) child->setParent(parent);
+    if (child != NULL) {
+        child->setParent(parent);
+    }
+
     delete target;
 
-    // Deletion can require repairs at several ancestors.
+    // keep going up because removing can affect more than one parent
     AVLNode<Key, Value>* node = parent;
-    while(node != NULL) {
+    while (node != NULL) {
+
         node->updateBalance(diff);
-        if(node->getBalance() == -1 || node->getBalance() == 1) return;
-
-        if(node->getBalance() == -2) {
-            if(node->getLeft()->getBalance() > 0) {
-                rotateLeft(node->getLeft());
-            }
-            node = rotateRight(node);
-        }
-        else if(node->getBalance() == 2) {
-            if(node->getRight()->getBalance() < 0) {
-                rotateRight(node->getRight());
-            }
-            node = rotateLeft(node);
+        if (node->getBalance() == -1 || node->getBalance() == 1) {
+            return;
         }
 
-        // A nonzero balance after rotation means the height did not shrink.
-        if(node->getBalance() != 0) return;
+        if (node->getBalance() == -2) {
+            if (node->getLeft()->getBalance() > 0) {
+                derpLeft(node->getLeft());
+            }
+            node = derpRight(node);
+        }
+        else if (node->getBalance() == 2) {
+            if (node->getRight()->getBalance() < 0) {
+                derpRight(node->getRight());
+            }
+            node = derpLeft(node);
+        }
+
+        // if the height stayed the same, we are done
+        if (node->getBalance() != 0) {
+            return;
+        }
         parent = node->getParent();
-        if(parent == NULL) return;
-        if(node == parent->getLeft()) diff = 1;
-        else diff = -1;
+        if (parent == NULL) {
+            return;
+        }
+        if (node == parent->getLeft()) {
+            diff = 1;
+        }
+        else {
+            diff = -1;
+        }
+
         node = parent;
     }
 }
 
-// Rotations reconnect the parent/root, move the middle subtree, and update
-// balances in constant time without traversing either subtree.
+// spin left: the right buddy moves up
 template<class Key, class Value>
-AVLNode<Key, Value>* AVLTree<Key, Value>::rotateLeft(AVLNode<Key, Value>* node)
+AVLNode<Key, Value>* AVLTree<Key, Value>::derpLeft(AVLNode<Key, Value>* node)
 {
-    AVLNode<Key, Value>* pivot = node->getRight();
+    AVLNode<Key, Value>* buddy = node->getRight();
     AVLNode<Key, Value>* parent = node->getParent();
-    AVLNode<Key, Value>* middle = pivot->getLeft();
+    AVLNode<Key, Value>* middleKid = buddy->getLeft();
 
-    if(parent == NULL) this->root_ = pivot;
-    else if(parent->getLeft() == node) parent->setLeft(pivot);
-    else parent->setRight(pivot);
-    pivot->setParent(parent);
+    if (parent == NULL) {
+        this->root_ = buddy;
+    }
+    else if (parent->getLeft() == node) {
+        parent->setLeft(buddy);
+    }
+    else {
+        parent->setRight(buddy);
+    }
+    buddy->setParent(parent);
 
-    node->setRight(middle);
-    if(middle != NULL) middle->setParent(node);
-    pivot->setLeft(node);
-    node->setParent(pivot);
+    // pass the middle kid over, then connect the old root
+    node->setRight(middleKid);
+    if (middleKid != NULL) {
+        middleKid->setParent(node);
+    }
+    buddy->setLeft(node);
+    node->setParent(buddy);
 
+    // update the two balances after the spin
     int nodeBalance = node->getBalance() - 1;
-    if(pivot->getBalance() > 0) nodeBalance -= pivot->getBalance();
-    int pivotBalance = pivot->getBalance() - 1;
-    if(nodeBalance < 0) pivotBalance += nodeBalance;
+    if (buddy->getBalance() > 0) {
+        nodeBalance -= buddy->getBalance();
+    }
+    int pivotBalance = buddy->getBalance() - 1;
+    if (nodeBalance < 0) {
+        pivotBalance += nodeBalance;
+    }
     node->setBalance(static_cast<int8_t>(nodeBalance));
-    pivot->setBalance(static_cast<int8_t>(pivotBalance));
-    return pivot;
+    buddy->setBalance(static_cast<int8_t>(pivotBalance));
+
+    return buddy;
 }
 
+// spin right: the left buddy moves up
 template<class Key, class Value>
-AVLNode<Key, Value>* AVLTree<Key, Value>::rotateRight(AVLNode<Key, Value>* node)
+AVLNode<Key, Value>* AVLTree<Key, Value>::derpRight(AVLNode<Key, Value>* node)
 {
-    AVLNode<Key, Value>* pivot = node->getLeft();
+    AVLNode<Key, Value>* buddy = node->getLeft();
     AVLNode<Key, Value>* parent = node->getParent();
-    AVLNode<Key, Value>* middle = pivot->getRight();
+    AVLNode<Key, Value>* middleKid = buddy->getRight();
 
-    if(parent == NULL) this->root_ = pivot;
-    else if(parent->getLeft() == node) parent->setLeft(pivot);
-    else parent->setRight(pivot);
-    pivot->setParent(parent);
+    if (parent == NULL) {
+        this->root_ = buddy;
+    }
+    else if (parent->getLeft() == node) {
+        parent->setLeft(buddy);
+    }
+    else {
+        parent->setRight(buddy);
+    }
+    buddy->setParent(parent);
 
-    node->setLeft(middle);
-    if(middle != NULL) middle->setParent(node);
-    pivot->setRight(node);
-    node->setParent(pivot);
+    // pass the middle kid over, then connect the old root
+    node->setLeft(middleKid);
+    if (middleKid != NULL) {
+        middleKid->setParent(node);
+    }
+    buddy->setRight(node);
+    node->setParent(buddy);
 
+    // update the two balances after the spin
     int nodeBalance = node->getBalance() + 1;
-    if(pivot->getBalance() < 0) nodeBalance -= pivot->getBalance();
-    int pivotBalance = pivot->getBalance() + 1;
-    if(nodeBalance > 0) pivotBalance += nodeBalance;
+    if (buddy->getBalance() < 0) {
+        nodeBalance -= buddy->getBalance();
+    }
+    int pivotBalance = buddy->getBalance() + 1;
+    if (nodeBalance > 0) {
+        pivotBalance += nodeBalance;
+    }
     node->setBalance(static_cast<int8_t>(nodeBalance));
-    pivot->setBalance(static_cast<int8_t>(pivotBalance));
-    return pivot;
+    buddy->setBalance(static_cast<int8_t>(pivotBalance));
+
+    return buddy;
 }
 
 template<class Key, class Value>
